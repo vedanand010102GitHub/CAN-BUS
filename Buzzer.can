@@ -1,3 +1,4 @@
+/*@!Encoding:1252*/
 /*
  * Buzzer.can
  * Vehicle Speed Warning System — CAN Bus Simulation
@@ -24,16 +25,17 @@ variables
   int   prevState   = -1;   // Track changes
   int   beepOn      = 0;    // Toggle: 1=ON  0=OFF
   int   totalBeeps  = 0;    // Count beeps for summary
+  char finalState[20];
 
   msTimer beepTimer;        // Independent beep rhythm timer
 }
 
-// ── Receive speed — same message as Dashboard ─────────────────
+// ____________Receive speed - same message as Dashboard_______________________________________________
 on message 0x100
 {
   speed = this.byte(0);
 
-  // ── Decide buzzer state ───────────────────────────────────
+  // ________Decide buzzer state________________________________________________________________________
   if (speed <= 120)
   {
     buzzerState = 0;          // Silent
@@ -49,7 +51,7 @@ on message 0x100
     buzzerState = 2;          // Rapid beep zone (danger)
   }
 
-  // ── Announce state changes ────────────────────────────────
+  // _________Announce state changes____________________________________________________________________________
   if (buzzerState != prevState)
   {
     switch (buzzerState)
@@ -73,7 +75,7 @@ on message 0x100
   }
 }
 
-// ── Beep timer — independent of CAN message rate ──────────────
+//  ________Beep timer - independent of CAN message rate__________________________________
 on timer beepTimer
 {
   if (buzzerState == 0) return;   // Safety: silenced
@@ -98,12 +100,19 @@ on timer beepTimer
 
 on stopMeasurement
 {
+  //char finalState[20];
   cancelTimer(beepTimer);
+
+  if (buzzerState == 0)
+    strncpy(finalState, "SILENT", 20);
+  else if (buzzerState == 1)
+    strncpy(finalState, "SLOW BEEP", 20);
+  else
+    strncpy(finalState, "RAPID BEEP", 20);
   write("--------------------------------------------------");
   write("Buzzer Summary:");
-  write("  Last speed      : %d km/h", speed);
-  write("  Last state      : %s",
-        buzzerState == 0 ? "SILENT" :  buzzerState == 1 ? "SLOW BEEP" : "RAPID BEEP");
-  write("  Total beeps     : %d", totalBeeps);
+  write("  Last speed  : %d km/h", speed);
+  write("  Last state  : %s",      finalState);
+  write("  Total beeps : %d",      totalBeeps);
   write("--------------------------------------------------");
 }
