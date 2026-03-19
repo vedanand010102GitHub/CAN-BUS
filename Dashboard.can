@@ -1,0 +1,91 @@
+/*
+ * Dashboard.can
+ * Vehicle Speed Warning System — CAN Bus Simulation
+ * Node: Dashboard ECU (Receiver)
+ *
+ * Receives vehicle speed from Engine ECU (ID 0x100)
+ * Classifies speed into 3 warning states:
+ *   NORMAL    -- speed < 80 km/h
+ *   OVERSPEED -- speed 80 to 120 km/h
+ *   CRITICAL  -- speed > 120 km/h
+ *
+ * State change detection: alerts fire ONLY on transitions,
+ * not on every frame -- simulates real ECU behavior.
+ *
+ * Tools: Vector CANoe 10 (Evolution) | CAPL Scripting
+ */
+
+variables
+{
+  byte currentSpeed   = 0;
+  int  currentState   = 0;    // 0=NORMAL  1=OVERSPEED  2=CRITICAL
+  int  previousState  = -1;   // -1 = uninitialized (forces first log)
+  int  totalFrames    = 0;
+
+  // State counters for summary
+  int  normalCount    = 0;
+  int  overspeedCount = 0;
+  int  criticalCount  = 0;
+}
+
+// ── Receive speed from Engine ECU ────────────────────────────
+on message 0x100
+{
+  currentSpeed = this.byte(0);   // Decode speed from byte 0
+  totalFrames++;
+
+  // ── Determine warning state ───────────────────────────────
+  if (currentSpeed < 80)
+    currentState = 0;            // NORMAL
+  else if (currentSpeed <= 120)
+    currentState = 1;            // OVERSPEED
+  else
+    currentState = 2;            // CRITICAL
+
+  // ── Count time in each state ──────────────────────────────
+  if      (currentState == 0) normalCount++;
+  else if (currentState == 1) overspeedCount++;
+  else                        criticalCount++;
+
+  // ── Log every frame ──────────────────────────────────────
+  write("Dashboard: Frame #%d | Speed = %d km/h | State = %s",
+        totalFrames,
+        currentSpeed,
+        currentState == 0 ? "NORMAL" :
+        currentState == 1 ? "OVERSPEED" : "CRITICAL");
+
+  // ── Alert only on state CHANGE ────────────────────────────
+  if (currentState != previousState)
+  {
+    switch (currentState)
+    {
+      case 0:
+        write(">>> Dashboard: State changed -> NORMAL (speed safe: %d km/h)",
+              currentSpeed);
+        break;
+      case 1:
+        write(">>> Dashboard: State changed -> OVERSPEED WARNING! (%d km/h)",
+              currentSpeed);
+        break;
+      case 2:
+        write(">>> Dashboard: State changed -> CRITICAL ALERT! (%d km/h) <<<",
+              currentSpeed);
+        break;
+    }
+    previousState = currentState;
+  }
+}
+
+on stopMeasurement
+{
+  write("--------------------------------------------------");
+  write("Dashboard Summary:");
+  write("  Total frames received : %d", totalFrames);
+  write("  Last speed            : %d km/h", currentSpeed);
+  write("  Last state            : %s",
+        currentState == 0 ? "NORMAL" : currentState == 1 ? "OVERSPEED" : "CRITICAL");
+  write("  Frames in NORMAL      : %d", normalCount);
+  write("  Frames in OVERSPEED   : %d", overspeedCount);
+  write("  Frames in CRITICAL    : %d", criticalCount);
+  write("--------------------------------------------------");
+}

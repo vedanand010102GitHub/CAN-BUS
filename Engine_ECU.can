@@ -1,0 +1,70 @@
+/*
+ * Engine_ECU.can
+ * Vehicle Speed Warning System — CAN Bus Simulation
+ * Node: Engine ECU (Transmitter)
+ *
+ * Transmits vehicle speed as CAN message ID 0x100 every 100ms
+ * Byte 0 = speed in km/h (0 to 140)
+ * Speed ramps: 0 -> 140 -> 0 km/h in 5 km/h steps
+ *
+ * Tools: Vector CANoe 10 (Evolution) | CAPL Scripting
+ */
+
+variables
+{
+  message 0x100 speedMsg;   // CAN message object — ID 0x100
+  msTimer speedTimer;       // 100ms cyclic timer
+
+  byte speed  = 0;          // Current speed in km/h
+  int  rampUp = 1;          // 1 = accelerating, 0 = braking
+}
+
+on start
+{
+  write("Engine ECU: Started. Ramping speed 0 -> 140 -> 0 km/h");
+  write("Engine ECU: Transmitting on ID 0x100 every 100ms");
+  setTimer(speedTimer, 100);
+}
+
+on timer speedTimer
+{
+  // Ramp speed up or down by 5 km/h each step
+  if (rampUp)
+  {
+    speed += 5;
+    if (speed >= 140)
+    {
+      speed  = 140;
+      rampUp = 0;           // Switch to braking
+      write("Engine ECU: Peak speed reached (140 km/h) - now braking");
+    }
+  }
+  else
+  {
+    speed -= 5;
+    if (speed <= 0)
+    {
+      speed  = 0;
+      rampUp = 1;           // Switch to accelerating again
+      write("Engine ECU: Speed = 0 km/h -- accelerating again");
+    }
+  }
+
+  // Pack speed into byte 0 and transmit
+  speedMsg.byte(0) = speed;
+  speedMsg.dlc     = 1;
+  output(speedMsg);
+
+  write("Engine ECU: Tx 0x100 | speed = %d km/h | byte0 = 0x%02X",
+        speed, speed);
+
+  setTimer(speedTimer, 100);    // Re-arm for next cycle
+}
+
+on stopMeasurement
+{
+  write("--------------------------------------------------");
+  write("Engine ECU: Stopped.");
+  write("Engine ECU: Last transmitted speed = %d km/h", speed);
+  write("--------------------------------------------------");
+}

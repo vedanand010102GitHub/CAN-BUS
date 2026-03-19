@@ -1,0 +1,109 @@
+/*
+ * Buzzer.can
+ * Vehicle Speed Warning System — CAN Bus Simulation
+ * Node: Buzzer ECU (Independent Receiver)
+ *
+ * Listens to the SAME message as Dashboard (ID 0x100)
+ * Demonstrates CAN broadcast model:
+ *   One transmitter -> multiple independent receivers
+ *
+ * Beep behavior based on speed zone:
+ *   speed <= 120 km/h  -> Silent
+ *   120 < speed <= 130 -> Slow beep  (every 500ms)
+ *   speed > 130 km/h   -> Rapid beep (every 200ms)
+ *
+ * Uses a second independent timer for beep rhythm --
+ * decoupled from the 100ms CAN message cycle.
+ *
+ */
+
+variables
+{
+  byte  speed       = 0;
+  int   buzzerState = 0;    // 0=Silent  1=SlowBeep  2=RapidBeep
+  int   prevState   = -1;   // Track changes
+  int   beepOn      = 0;    // Toggle: 1=ON  0=OFF
+  int   totalBeeps  = 0;    // Count beeps for summary
+
+  msTimer beepTimer;        // Independent beep rhythm timer
+}
+
+// ── Receive speed — same message as Dashboard ─────────────────
+on message 0x100
+{
+  speed = this.byte(0);
+
+  // ── Decide buzzer state ───────────────────────────────────
+  if (speed <= 120)
+  {
+    buzzerState = 0;          // Silent
+    cancelTimer(beepTimer);   // Stop beeping immediately
+    beepOn = 0;
+  }
+  else if (speed <= 130)
+  {
+    buzzerState = 1;          // Slow beep zone
+  }
+  else
+  {
+    buzzerState = 2;          // Rapid beep zone (danger)
+  }
+
+  // ── Announce state changes ────────────────────────────────
+  if (buzzerState != prevState)
+  {
+    switch (buzzerState)
+    {
+      case 0:
+        write("Buzzer: SILENT -- speed %d km/h is below 120 km/h threshold",
+              speed);
+        break;
+      case 1:
+        write("Buzzer: SLOW BEEP activated -- speed = %d km/h (120-130 zone)",
+              speed);
+        setTimer(beepTimer, 500);   // Start slow rhythm
+        break;
+      case 2:
+        write("Buzzer: RAPID BEEP activated -- speed = %d km/h (DANGER > 130)",
+              speed);
+        setTimer(beepTimer, 200);   // Switch to rapid rhythm
+        break;
+    }
+    prevState = buzzerState;
+  }
+}
+
+// ── Beep timer — independent of CAN message rate ──────────────
+on timer beepTimer
+{
+  if (buzzerState == 0) return;   // Safety: silenced
+
+  beepOn = !beepOn;               // Toggle ON / OFF
+
+  if (beepOn)
+  {
+    totalBeeps++;
+    write("Buzzer: *** BEEP *** (speed = %d km/h | beep #%d)",
+          speed, totalBeeps);
+  }
+  else
+  {
+    write("Buzzer: --- (off)");
+  }
+
+  // Re-arm at correct interval for current state
+  if      (buzzerState == 1) setTimer(beepTimer, 500);   // Slow
+  else if (buzzerState == 2) setTimer(beepTimer, 200);   // Rapid
+}
+
+on stopMeasurement
+{
+  cancelTimer(beepTimer);
+  write("--------------------------------------------------");
+  write("Buzzer Summary:");
+  write("  Last speed      : %d km/h", speed);
+  write("  Last state      : %s",
+        buzzerState == 0 ? "SILENT" :  buzzerState == 1 ? "SLOW BEEP" : "RAPID BEEP");
+  write("  Total beeps     : %d", totalBeeps);
+  write("--------------------------------------------------");
+}
