@@ -1,3 +1,4 @@
+/*@!Encoding:1252*/
 /*
  * Dashboard.can
  * Vehicle Speed Warning System — CAN Bus Simulation
@@ -15,12 +16,15 @@
  * Tools: Vector CANoe 10 (Evolution) | CAPL Scripting
  */
 
+/*
 variables
 {
   byte currentSpeed   = 0;
   int  currentState   = 0;    // 0=NORMAL  1=OVERSPEED  2=CRITICAL
   int  previousState  = -1;   // -1 = uninitialized (forces first log)
   int  totalFrames    = 0;
+  char stateStr[20];
+  char finalState[20];
 
   // State counters for summary
   int  normalCount    = 0;
@@ -28,13 +32,13 @@ variables
   int  criticalCount  = 0;
 }
 
-// ── Receive speed from Engine ECU ────────────────────────────
+// __________Receive speed from Engine ECU____________________________________________________________________________________
 on message 0x100
 {
   currentSpeed = this.byte(0);   // Decode speed from byte 0
   totalFrames++;
 
-  // ── Determine warning state ───────────────────────────────
+  // ___________Determine warning state____________________________________________________________________________________________
   if (currentSpeed < 80)
     currentState = 0;            // NORMAL
   else if (currentSpeed <= 120)
@@ -42,19 +46,26 @@ on message 0x100
   else
     currentState = 2;            // CRITICAL
 
-  // ── Count time in each state ──────────────────────────────
+  // _________Count time in each state_______________________________________________________________________________________________
   if      (currentState == 0) normalCount++;
   else if (currentState == 1) overspeedCount++;
   else                        criticalCount++;
 
-  // ── Log every frame ──────────────────────────────────────
-  write("Dashboard: Frame #%d | Speed = %d km/h | State = %s",
+  // ____________Log every frame______________________________________________________________________________________________________
+ // / *write("Dashboard: Frame #%d | Speed = %d km/h | State = %s",
         totalFrames,
         currentSpeed,
         currentState == 0 ? "NORMAL" :
         currentState == 1 ? "OVERSPEED" : "CRITICAL");
+// * /
+ // char stateStr[20];
+  if      (currentState == 0) strncpy(stateStr, "NORMAL",    20);
+  else if (currentState == 1) strncpy(stateStr, "OVERSPEED", 20);
+  else                        strncpy(stateStr, "CRITICAL",  20);
 
-  // ── Alert only on state CHANGE ────────────────────────────
+  write("Dashboard: Frame #%d | Speed = %d km/h | State = %s",
+        totalFrames, currentSpeed, stateStr);
+  // _____________Alert only on state CHANGE________________________________________________________________________
   if (currentState != previousState)
   {
     switch (currentState)
@@ -82,10 +93,157 @@ on stopMeasurement
   write("Dashboard Summary:");
   write("  Total frames received : %d", totalFrames);
   write("  Last speed            : %d km/h", currentSpeed);
-  write("  Last state            : %s",
-        currentState == 0 ? "NORMAL" : currentState == 1 ? "OVERSPEED" : "CRITICAL");
+ // char finalState[20];
+  if      (currentState == 0) strncpy(finalState, "NORMAL",    20);
+  else if (currentState == 1) strncpy(finalState, "OVERSPEED", 20);
+  else                        strncpy(finalState, "CRITICAL",  20);
+
+  write("  Last state            : %s", finalState);
   write("  Frames in NORMAL      : %d", normalCount);
   write("  Frames in OVERSPEED   : %d", overspeedCount);
   write("  Frames in CRITICAL    : %d", criticalCount);
   write("--------------------------------------------------");
 }
+*/
+/*
+ * Dashboard.can
+ * Vehicle Speed Warning System   CAN Bus Simulation
+ * Node: Dashboard ECU (Receiver)
+ *
+ * Prints combined status for EVERY frame:
+ *   Frame# | Speed | Dashboard State | Buzzer Status
+ *
+ * Dashboard states:
+ *   NORMAL    -- speed < 80 km/h
+ *   OVERSPEED -- speed 80 to 120 km/h
+ *   CRITICAL  -- speed > 120 km/h
+ *
+ * Buzzer status (mirrored from speed):
+ *   SILENT     -- speed <= 120 km/h
+ *   SLOW BEEP  -- speed 120 to 130 km/h
+ *   RAPID BEEP -- speed > 130 km/h
+ *
+ * Tools: Vector CANoe 10 (Evolution) | CAPL Scripting
+ */
+
+variables
+{
+  byte currentSpeed   = 0;
+  int  currentState   = 0;    // 0=NORMAL  1=OVERSPEED  2=CRITICAL
+  int  previousState  = -1;
+  int  totalFrames    = 0;
+
+  int  normalCount    = 0;
+  int  overspeedCount = 0;
+  int  criticalCount  = 0;
+  char finalDash[20];
+  char finalBuzz[20];
+}
+
+on message 0x100
+{
+  char dashState[20];
+  char buzzerStatus[20];
+
+  currentSpeed = this.byte(0);
+  totalFrames++;
+
+  // -- Determine Dashboard state -----------------------------
+  if (currentSpeed < 80)
+    currentState = 0;
+  else if (currentSpeed <= 120)
+    currentState = 1;
+  else
+    currentState = 2;
+
+  // Count per state
+  if      (currentState == 0) normalCount++;
+  else if (currentState == 1) overspeedCount++;
+  else                        criticalCount++;
+
+  // Build dashboard state string
+  if (currentState == 0)
+    strncpy(dashState, "NORMAL   ", 20);
+  else if (currentState == 1)
+    strncpy(dashState, "OVERSPEED", 20);
+  else
+    strncpy(dashState, "CRITICAL ", 20);
+
+  // -- Determine Buzzer status from same speed ---------------
+  if (currentSpeed <= 120)
+    strncpy(buzzerStatus, "SILENT     ", 20);
+  else if (currentSpeed <= 130)
+    strncpy(buzzerStatus, "SLOW BEEP  ", 20);
+  else
+    strncpy(buzzerStatus, "RAPID BEEP ", 20);
+
+  // -- Print combined line for every frame -------------------
+  write("Frame #%04d | Speed: %3d km/h | Dashboard: %s | Buzzer: %s",
+        totalFrames,
+        currentSpeed,
+        dashState,
+        buzzerStatus);
+
+  // -- Print state change banner -----------------------------
+  if (currentState != previousState)
+  {
+    write("------------------------------------------------------------");
+    switch (currentState)
+    {
+      case 0:
+        write(">>> STATE CHANGE -> NORMAL    | Speed: %d km/h | Buzzer: SILENT",
+              currentSpeed);
+        break;
+      case 1:
+        write(">>> STATE CHANGE -> OVERSPEED | Speed: %d km/h | Buzzer: SILENT",
+              currentSpeed);
+        break;
+      case 2:
+        if (currentSpeed <= 130)
+          write(">>> STATE CHANGE -> CRITICAL  | Speed: %d km/h | Buzzer: SLOW BEEP",
+                currentSpeed);
+        else
+          write(">>> STATE CHANGE -> CRITICAL  | Speed: %d km/h | Buzzer: RAPID BEEP",
+                currentSpeed);
+        break;
+    }
+    write("------------------------------------------------------------");
+    previousState = currentState;
+  }
+}
+
+on stopMeasurement
+{
+  //char finalDash[20];
+  //char finalBuzz[20];
+
+  // Final dashboard state
+  if (currentState == 0)
+    strncpy(finalDash, "NORMAL", 20);
+  else if (currentState == 1)
+    strncpy(finalDash, "OVERSPEED", 20);
+  else
+    strncpy(finalDash, "CRITICAL", 20);
+
+  // Final buzzer state
+  if (currentSpeed <= 120)
+    strncpy(finalBuzz, "SILENT", 20);
+  else if (currentSpeed <= 130)
+    strncpy(finalBuzz, "SLOW BEEP", 20);
+  else
+    strncpy(finalBuzz, "RAPID BEEP", 20);
+
+  write("============================================================");
+  write("FINAL SUMMARY");
+  write("============================================================");
+  write("  Total frames received  : %d", totalFrames);
+  write("  Last speed             : %d km/h", currentSpeed);
+  write("  Last Dashboard state   : %s", finalDash);
+  write("  Last Buzzer status     : %s", finalBuzz);
+  write("------------------------------------------------------------");
+  write("  NORMAL frames          : %d", normalCount);
+  write("  OVERSPEED frames       : %d", overspeedCount);
+  write("  CRITICAL frames        : %d", criticalCount);
+  write("============================================================");
+}
+
